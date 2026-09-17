@@ -1,0 +1,4 @@
+{
+  "_comment": "Front-end runtime config. remoteDataBase is where the browser fetches chunk data from when not running against a local scrape. Leave it empty to use local data only (./data/chunks), which is the default for a self-hosted deployment. If you publish your own chunks to GitHub Pages or a CDN, put that base URL here, e.g. https://YOUR-USERNAME.github.io/job-board-data/data/chunks",
+  "remoteDataBase": ""
+}
