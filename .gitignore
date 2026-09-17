@@ -71,6 +71,9 @@ data/metadata.json
 !data/icims_companies.json
 !data/paylocity_companies_clean.json
 !data/locations.json
+!data/app_config.json
+!data/role_filter.json
+!data/role_shortlist.json
 !data/salary/salary_lookup.json
 !data/salary/shards/salary_*.json
 
@@ -86,3 +89,5 @@ data/*.py
 /city_aggregator/*.py
 /city_aggregator/admin1CodesASCII.txt
 /city_aggregator/cities500.txt
+# Local virtualenv
+.venv/
