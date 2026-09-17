@@ -76,9 +76,14 @@ print(f"  {len(LOCATION_MAPS['city']):,} city-only entries loaded")
 
 
 def enrich_location(location_str):
-    """Resolve a location string to (remote, coords). Safe to call from worker threads."""
+    """Resolve a location string to (remote, coords, country).
+
+    country is an ISO 3166-1 alpha-2 code or None. Safe to call from worker
+    threads. One lookup returns all three -- resolving the country separately
+    would re-parse every string, which is wasteful across ~1.5M jobs.
+    """
     result = lookup_location(location_str, LOCATION_MAPS)
-    return result["remote"], result["coords"]
+    return result["remote"], result["coords"], result["country"]
 
 
 RECRUITER_TERMS = [
@@ -134,6 +139,38 @@ def load_companies(filepath):
         return set()
 
 
+def load_shortlist(filepath):
+    """Load the fast-tier shortlist written by build_shortlist.py.
+
+    Returns {platform_key: set(slugs)}, or None if no shortlist was requested
+    (in which case every platform is scraped in full)."""
+    if not filepath:
+        return None
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        print(f"Shortlist not found: {filepath} - falling back to a full scrape")
+        return None
+    platforms = {k: set(v) for k, v in (data.get("platforms") or {}).items()}
+    total = sum(len(v) for v in platforms.values())
+    print(
+        f"Shortlist mode: {total:,} companies across {len(platforms)} platforms "
+        f"(preset '{data.get('preset')}', generated {data.get('generated_at')})"
+    )
+    return platforms
+
+
+def apply_shortlist(companies, platform, shortlist):
+    """Narrow a platform's company set to the shortlist, if one is active."""
+    if shortlist is None:
+        return companies
+    allowed = shortlist.get(platform.lower())
+    if not allowed:
+        return set()
+    return companies & allowed
+
+
 # ============================================================
 # VERIFY ACTIVE JOBS + FETCH ALL JOBS
 # ============================================================
@@ -184,7 +221,7 @@ def fetch_company_jobs_greenhouse(slug):
                 normalized = []
                 for job in jobs:
                     location = job.get("location", {}).get("name", "Not specified")
-                    remote, coords = enrich_location(location)
+                    remote, coords, country = enrich_location(location)
                     normalized.append(
                         {
                             "company": slug,
@@ -193,6 +230,7 @@ def fetch_company_jobs_greenhouse(slug):
                             "location": location,
                             "remote": remote,
                             "coords": coords,
+                            "country": country,
                             "url": job.get("absolute_url"),
                             "absolute_url": job.get("absolute_url"),
                             "departments": [
@@ -263,12 +301,21 @@ def fetch_company_jobs_ashby(slug):
         if jobs:
             normalized = []
             for job in jobs:
+                location = job.get("locationName", "Not specified")[:50]
+                # Ashby previously skipped enrichment entirely, so its jobs had
+                # no remote/coords/country and were invisible to the remote,
+                # heatmap and region filters. It's ~1k shortlisted companies, so
+                # that was a real gap.
+                remote, coords, country = enrich_location(location)
                 normalized.append(
                     {
                         "company": slug,
                         "company_slug": slug,
                         "title": job.get("title", ""),
-                        "location": job.get("locationName", "Not specified")[:50],
+                        "location": location,
+                        "remote": remote,
+                        "coords": coords,
+                        "country": country,
                         "url": f"https://jobs.ashbyhq.com/{slug}/{job.get('id')}",
                         "is_recruiter": is_recruiter_company(slug),
                         "ats": "Ashby",
@@ -325,7 +372,7 @@ def fetch_company_jobs_bamboohr(slug):
                         else:
                             location = str(loc) if loc else "Not specified"
 
-                        remote, coords = enrich_location(location)
+                        remote, coords, country = enrich_location(location)
                         normalized.append(
                             {
                                 "company": slug,
@@ -334,6 +381,7 @@ def fetch_company_jobs_bamboohr(slug):
                                 "location": location[:50],
                                 "remote": remote,
                                 "coords": coords,
+                                "country": country,
                                 "url": f"https://{slug}.bamboohr.com/careers/{job.get('id')}",
                                 "is_recruiter": is_recruiter_company(slug),
                                 "ats": "BambooHR",
@@ -382,7 +430,7 @@ def fetch_company_jobs_lever(slug):
                 for job in jobs:
                     categories = job.get("categories", {})
                     location = categories.get("location", "Not specified")[:50]
-                    remote, coords = enrich_location(location)
+                    remote, coords, country = enrich_location(location)
                     normalized.append(
                         {
                             "company": slug,
@@ -391,6 +439,7 @@ def fetch_company_jobs_lever(slug):
                             "location": location,
                             "remote": remote,
                             "coords": coords,
+                            "country": country,
                             "url": job.get("hostedUrl"),
                             "is_recruiter": is_recruiter_company(slug),
                             "ats": "Lever",
@@ -496,7 +545,7 @@ def fetch_company_jobs_workday(slug):
             for job in jobs:
                 job_path = job.get("externalPath", "")
                 location = (job.get("locationsText") or "Not specified")[:50]
-                remote, coords = enrich_location(location)
+                remote, coords, country = enrich_location(location)
                 normalized.append(
                     {
                         "company": company,
@@ -505,6 +554,7 @@ def fetch_company_jobs_workday(slug):
                         "location": location,
                         "remote": remote,
                         "coords": coords,
+                        "country": country,
                         "url": f"{base_url}/{site_id}{job_path}",
                         "updated_at": _parse_workday_posted_on(job.get("postedOn")),
                         "is_recruiter": is_recruiter_company(company),
@@ -580,7 +630,7 @@ def fetch_company_jobs_icims(slug):
                 else None
             )
 
-            remote, coords = False, None
+            remote, coords, country = False, None, None
             normalized.append(
                 {
                     "company": slug,
@@ -589,6 +639,7 @@ def fetch_company_jobs_icims(slug):
                     "location": "Not specified",
                     "remote": remote,
                     "coords": coords,
+                    "country": country,
                     "url": job_url,
                     "updated_at": updated_at,
                     "is_recruiter": is_recruiter_company(slug),
@@ -667,7 +718,7 @@ def fetch_company_jobs_paylocity(slug):
             job_id = job.get("JobId")
             title = html.unescape(job.get("JobTitle") or "")
             location = _paylocity_location(job)
-            inferred_remote, coords = enrich_location(location)
+            inferred_remote, coords, country = enrich_location(location)
             remote = bool(job.get("IsRemote")) or inferred_remote
             dept = job.get("HiringDepartment")  # almost always null on Paylocity
             if dept:
@@ -685,6 +736,7 @@ def fetch_company_jobs_paylocity(slug):
                     "location": location,
                     "remote": remote,
                     "coords": coords,
+                    "country": country,
                     "url": detail,
                     "absolute_url": detail,
                     "departments": [dept] if dept else [],
@@ -961,6 +1013,7 @@ def save_results(all_companies, active_companies, all_jobs):
         "scraped_at",
         "remote",
         "coords",
+        "country",
         "salary",
         "updated_at",
         "first_seen",
@@ -1031,11 +1084,13 @@ def save_results(all_companies, active_companies, all_jobs):
     print()
 
 
-def main():
+def main(shortlist_path=None):
     print("\n" + "=" * 80)
     print("JOB BOARD AGGREGATOR")
     print("Scraping all jobs from ATS companies")
     print("=" * 80)
+
+    shortlist = load_shortlist(shortlist_path)
 
     # Load existing companies
     greenhouse_companies = load_companies(GREENHOUSE_FILE)
@@ -1069,6 +1124,17 @@ def main():
         (paylocity_companies, fetch_company_jobs_paylocity, "PAYLOCITY"),
     ]
 
+    # Narrow to the fast-tier shortlist when one is active
+    platforms = [
+        (apply_shortlist(companies, name, shortlist), fetcher, name)
+        for companies, fetcher, name in platforms
+    ]
+    platforms = [p for p in platforms if p[0]]
+
+    if not platforms:
+        print("Exiting - shortlist matched no companies on any platform!")
+        return
+
     # Run all platforms concurrently
     all_active_companies = {}
     all_jobs = []
@@ -1088,16 +1154,9 @@ def main():
                 f"\n  >>> {name} COMPLETE: {len(active):,} active, {len(jobs):,} jobs <<<\n"
             )
 
-    # Combine all company sets for total count
-    all_companies = (
-        greenhouse_companies
-        | ashby_companies
-        | bamboohr_companies
-        | lever_companies
-        | workday_companies
-        | icims_companies
-        | paylocity_companies
-    )
+    # Combine the company sets actually scraped this run for the total count
+    # (identical to the full lists on a normal run; narrowed in shortlist mode)
+    all_companies = set().union(*(companies for companies, _, _ in platforms))
 
     save_results(all_companies, all_active_companies, all_jobs)
 
@@ -1120,10 +1179,19 @@ if __name__ == "__main__":
         default="automated",
         help="Source type: automated (GitHub Actions) or manual (local run)",
     )
+    parser.add_argument(
+        "--shortlist",
+        default=None,
+        help=(
+            "Path to data/role_shortlist.json. Restricts the scrape to companies "
+            "that recently posted matching roles (used by the hourly fast tier). "
+            "Omit for a full scrape of every company."
+        ),
+    )
 
     args = parser.parse_args()
     SOURCE_TYPE = args.source
 
     print(f"\nRunning in {SOURCE_TYPE.upper()} mode\n")
 
-    main()
+    main(shortlist_path=args.shortlist)
