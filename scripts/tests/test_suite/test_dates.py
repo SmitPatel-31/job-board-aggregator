@@ -19,7 +19,7 @@ from scraper import (
     fetch_company_jobs_workday,
     _parse_workday_posted_on,
 )
-from merge_data import get_dedup_key
+from merge_data import get_dedup_key, overlay_new_jobs
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -85,20 +85,21 @@ def check_updated_at(name, fetch_fn, slugs, must_have_dates):
 # ── Unit tests: first_seen merge logic ────────────────────────────────────────
 
 def _run_merge_logic(existing_jobs, new_jobs):
-    """Replicate the merge loop from merge_data.py for unit testing."""
+    """Drive the real overlay loop from merge_data.py.
+
+    This calls production code rather than a copy of it -- an earlier version of
+    this helper duplicated the loop, which meant the tests kept passing after the
+    real logic changed underneath them.
+    """
     merged = {get_dedup_key(j): j for j in existing_jobs if get_dedup_key(j)}
-
-    for job in new_jobs:
-        key = get_dedup_key(job)
-        if key:
-            existing = merged.get(key)
-            if existing:
-                job["first_seen"] = existing.get("first_seen") or existing.get("scraped_at")
-            else:
-                job["first_seen"] = job.get("scraped_at")
-            merged[key] = job
-
+    overlay_new_jobs(merged, new_jobs)
     return merged
+
+
+def _run_merge_counting_new(existing_jobs, new_jobs):
+    """Same, but returns (merged, new_count)."""
+    merged = {get_dedup_key(j): j for j in existing_jobs if get_dedup_key(j)}
+    return merged, overlay_new_jobs(merged, new_jobs)
 
 
 def _job(url, scraped_at=None, first_seen=None, ats="Greenhouse"):
@@ -133,16 +134,49 @@ def test_first_seen_preserved_on_rescrape():
     )
 
 
-def test_first_seen_seeded_from_scraped_at_when_missing():
-    """Existing job that pre-dates this feature (no first_seen) gets seeded
-    from scraped_at on the next merge run."""
+def test_first_seen_left_unset_for_legacy_job():
+    """An existing job that pre-dates first_seen must NOT be backfilled.
+
+    The only date available is the previous run's scraped_at, which is just
+    "last time we saw it" -- seeding from it would date every legacy job to
+    yesterday and flood the 24h "new jobs" feed. Unset means "not new", which
+    is the honest answer.
+    """
     existing = [_job("https://example.com/3", scraped_at="2024-12-01T00:00:00Z")]
     new      = [_job("https://example.com/3", scraped_at="2025-01-15T00:00:00Z")]
     result = _run_merge_logic(existing, new)
     job = result["https://example.com/3"]
-    assert job["first_seen"] == "2024-12-01T00:00:00Z", (
-        f"first_seen should be seeded from old scraped_at, got {job['first_seen']!r}"
+    assert job.get("first_seen") is None, (
+        f"legacy job should have no first_seen, got {job.get('first_seen')!r}"
     )
+
+
+def test_new_count_only_counts_unseen_keys():
+    """The new-job count drives the feed, so it must exclude re-scrapes."""
+    existing = [_job("https://example.com/known", scraped_at="2025-01-01T00:00:00Z",
+                     first_seen="2025-01-01T00:00:00Z")]
+    new = [
+        _job("https://example.com/known", scraped_at="2025-01-02T00:00:00Z"),
+        _job("https://example.com/fresh", scraped_at="2025-01-02T00:00:00Z"),
+    ]
+    _, new_count = _run_merge_counting_new(existing, new)
+    assert new_count == 1, f"expected 1 new job, got {new_count}"
+
+
+def test_partial_scrape_preserves_uncovered_jobs():
+    """The hourly fast tier only scrapes a shortlist; everything it didn't
+    cover must survive the overlay untouched."""
+    existing = [
+        _job("https://example.com/shortlisted", scraped_at="2025-01-01T00:00:00Z",
+             first_seen="2025-01-01T00:00:00Z"),
+        _job("https://example.com/untouched", scraped_at="2025-01-01T00:00:00Z",
+             first_seen="2024-06-01T00:00:00Z"),
+    ]
+    new = [_job("https://example.com/shortlisted", scraped_at="2025-01-02T00:00:00Z")]
+    result, new_count = _run_merge_counting_new(existing, new)
+    assert new_count == 0, f"partial scrape reported {new_count} new jobs"
+    assert len(result) == 2, "partial scrape dropped jobs it did not cover"
+    assert result["https://example.com/untouched"]["first_seen"] == "2024-06-01T00:00:00Z"
 
 
 def test_first_seen_independent_jobs():
@@ -207,7 +241,9 @@ def run_unit_tests():
     tests = [
         test_first_seen_new_job,
         test_first_seen_preserved_on_rescrape,
-        test_first_seen_seeded_from_scraped_at_when_missing,
+        test_first_seen_left_unset_for_legacy_job,
+        test_new_count_only_counts_unseen_keys,
+        test_partial_scrape_preserves_uncovered_jobs,
         test_first_seen_independent_jobs,
         test_first_seen_no_scraped_at,
         test_workday_parse_today,
