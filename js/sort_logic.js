@@ -11,6 +11,16 @@ export function sortJobs(jobs, sortState) {
             if (bVal === null) return -1;
             return (aVal - bVal) * multiplier;
         }
+        if (key === 'first_seen') {
+            // Newest-discovered first. Jobs with no first_seen predate the field
+            // and always sort last regardless of direction.
+            const aT = a.first_seen ? Date.parse(a.first_seen) : null;
+            const bT = b.first_seen ? Date.parse(b.first_seen) : null;
+            if (aT === null && bT === null) return 0;
+            if (aT === null) return 1;
+            if (bT === null) return -1;
+            return (aT - bT) * multiplier;
+        }
         if (key === 'posted') {
             const aT = (a.updated_at || a.first_seen) ? Date.parse(a.updated_at || a.first_seen) : null;
             const bT = (b.updated_at || b.first_seen) ? Date.parse(b.updated_at || b.first_seen) : null;

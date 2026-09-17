@@ -1,17 +1,22 @@
 // ============================================================
-// JOB BOARD APP 
+// JOB HUNT PIPELINE — APP 
 // ============================================================
 
 import { showToast, showLoadingToast, setUIBusy, updateFABVisibility, updateSortIndicators } from './ui_utils.js';
 import { saveApplicationStatus } from './storage.js';
 import { createColumns } from './columns.js';
-import { loadJobsProgressive, updateStats } from './jobs_loader.js';
+import { loadJobsProgressive } from './jobs_loader.js';
 import { filterJobs, clearFilterInputs } from './filters.js';
 import { render } from './renderer.js';
 import { updateURL, loadFromURL } from './url_state.js';
 import { setupEventListeners } from './events.js';
 import { sortJobs } from './sort_logic.js';
 import { toggleView, updateHeatmapIfVisible } from './map_view.js';
+import { loadRolePreset } from './role_filter.js';
+import { createMultiSelect, setOptionCounts } from './multi_select.js';
+import { renderChips } from './filter_chips.js';
+import { setupPresets, setupSavedSearches, markActive } from './presets.js';
+import { initTheme } from './theme.js';
 
 class JobBoardApp {
     constructor() {
@@ -25,23 +30,102 @@ class JobBoardApp {
         this.isSorting = false;
         this.isFullyLoaded = false;
 
-        this.filterState = {
-            title: '', company: '', location: '', status: '',
-            ats: '', skill_level: '', remoteOnly: false
-        };
+        this.filterState = this.blankFilterState();
 
         this.debounceTimer = null;
         this.columns = createColumns();
         this.sortWorker = null;
     }
 
+    blankFilterState() {
+        return {
+            title: '', company: '', location: '', status: '',
+            ats: '', skill_level: '', remoteOnly: false,
+            freshness: '', posted: '', rolePreset: false,
+            country: '', includeUnknownCountry: false,
+            salaryMin: '', salaryMax: '', hasSalary: false,
+            exclude: '', include: '', hideRecruiters: true, hideApplied: false
+        };
+    }
+
     // ── Initialization ───────────────────────────────────────────
     async init() {
+        initTheme();
+        this.buildMultiSelects();
+
+        // Preset loads alongside the first chunk; it must be compiled before
+        // loadFromURL() so a bookmarked ?roles=1 link filters correctly.
+        const presetReady = loadRolePreset().then(preset => {
+            if (preset) document.getElementById('role-preset-label').textContent = preset.name;
+        });
+
         await this.loadJobs();
+        await presetReady;
+
         setupEventListeners(this);
+        setupPresets(this);
+        setupSavedSearches(this);
         this.loadFromURL();
-        this.setupViewToggle();  // ← add this
+        this.setupViewToggle();
         this.render();
+        this.refreshCounts();
+    }
+
+    /** ATS and level are multi-select; the native <select>s stay as the value carrier. */
+    buildMultiSelects() {
+        const rerun = () => this.applyFilters();
+        createMultiSelect('multi-ats', [
+            { value: 'greenhouse', label: 'Greenhouse' },
+            { value: 'lever', label: 'Lever' },
+            { value: 'ashby', label: 'Ashby' },
+            { value: 'workday', label: 'Workday' },
+            { value: 'icims', label: 'iCIMS' },
+            { value: 'bamboohr', label: 'BambooHR' },
+            { value: 'paylocity', label: 'Paylocity' },
+        ], 'All platforms', rerun);
+
+        createMultiSelect('multi-skill-level', [
+            { value: 'intern', label: 'Intern' },
+            { value: 'entry', label: 'Entry' },
+            { value: 'mid', label: 'Mid' },
+            { value: 'senior', label: 'Senior' },
+        ], 'Any level', rerun);
+    }
+
+    /** Stat strip, filter count badge and per-option counts. */
+    refreshCounts() {
+        const total = this.getTotalJobsCount();
+        const el = id => document.getElementById(id);
+
+        const matching = el('stat-matching');
+        if (matching) matching.textContent = total.toLocaleString();
+
+        const badge = el('filter-count');
+        if (badge) {
+            badge.textContent = `${total.toLocaleString()} match`;
+            badge.classList.toggle('is-updating', this.hasActiveFilters());
+        }
+
+        const cutoff = Date.now() - 24 * 3600 * 1000;
+        const fresh = el('stat-fresh');
+        if (fresh) {
+            let n = 0;
+            for (const j of this.allJobs) {
+                if (j.first_seen && Date.parse(j.first_seen) >= cutoff) n++;
+            }
+            fresh.textContent = n.toLocaleString();
+        }
+
+        const atsCounts = {};
+        const levelCounts = {};
+        for (const j of this.allJobs) {
+            const a = (j.ats || '').toLowerCase();
+            if (a) atsCounts[a] = (atsCounts[a] || 0) + 1;
+            const l = (j.skill_level || '').toLowerCase();
+            if (l) levelCounts[l] = (levelCounts[l] || 0) + 1;
+        }
+        setOptionCounts('multi-ats', atsCounts);
+        setOptionCounts('multi-skill-level', levelCounts);
     }
 
     // ── Data Loading ───────────────────────────────────────────
@@ -61,13 +145,49 @@ class JobBoardApp {
         } catch (error) {
             console.error('Error loading jobs:', error);
             showToast('Error loading job data.', 'danger');
-            loadingEl.textContent = 'Failed to load job data.';
+            this.renderLoadError(loadingEl, error);
         }
+    }
+
+    /** Replace the skeleton with an actionable error rather than bare text. */
+    renderLoadError(container, error) {
+        container.textContent = '';
+        const block = document.createElement('div');
+        block.className = 'state-block is-error';
+
+        const icon = document.createElement('div');
+        icon.className = 'state-icon';
+        icon.textContent = '!';
+
+        const title = document.createElement('div');
+        title.className = 'state-title';
+        title.textContent = 'Could not load job data';
+
+        const body = document.createElement('div');
+        body.className = 'state-body';
+        body.textContent = error?.message
+            ? `${error.message}. The data source may be mid-publish \u2014 retrying usually works.`
+            : 'The data source did not respond.';
+
+        const retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'btn btn-primary btn-sm';
+        retry.textContent = 'Retry';
+        retry.addEventListener('click', () => window.location.reload());
+
+        const status = document.createElement('a');
+        status.href = 'status.html';
+        status.className = 'btn btn-outline-secondary btn-sm ms-2';
+        status.textContent = 'Pipeline status';
+
+        block.append(icon, title, body, retry, status);
+        container.appendChild(block);
     }
 
     // ── Rendering ────────────────────────────────────────────
     render() {
         render(this);
+        this.refreshCounts();
     }
 
     debounceRender() {
@@ -84,9 +204,10 @@ class JobBoardApp {
         this.sortedJobs = null;
         updateURL(this.filterState, this.currentPage, this.sortState);
         updateHeatmapIfVisible();
+        renderChips(this);
 
         // Only re-sort if a sort is active AND it's a sortable column
-        const sortableKeys = ['company', 'salary', 'posted'];
+        const sortableKeys = ['company', 'salary', 'posted', 'first_seen'];
         if (this.sortState.key && sortableKeys.includes(this.sortState.key)) {
             this.sortAndRender();
         } else {
@@ -97,17 +218,16 @@ class JobBoardApp {
 
     clearFilters() {
         clearFilterInputs();
-        this.filterState = {
-            title: '', company: '', location: '', status: '',
-            ats: '', skill_level: '', remoteOnly: false
-        };
+        this.filterState = this.blankFilterState();
         this.filteredJobs = [...this.allJobs];
         this.currentPage = 1;
         this.sortedJobs = null;
         updateURL(this.filterState, this.currentPage, this.sortState);
         updateHeatmapIfVisible();
+        renderChips(this);
+        markActive(null);
 
-        const sortableKeys = ['company', 'salary', 'posted'];
+        const sortableKeys = ['company', 'salary', 'posted', 'first_seen'];
         if (this.sortState.key && sortableKeys.includes(this.sortState.key)) {
             this.sortAndRender();
         } else {
@@ -125,7 +245,8 @@ class JobBoardApp {
     hasActiveFilters() {
         const f = this.filterState;
         return f.title || f.company || f.location || f.status ||
-            f.ats || f.skill_level || f.remoteOnly || f.exclude || f.include;
+            f.ats || f.skill_level || f.remoteOnly || f.exclude || f.include ||
+            f.freshness || f.rolePreset || f.country || f.includeUnknownCountry;
     }
 
     // ── Sorting ──────────────────────────────────────────────

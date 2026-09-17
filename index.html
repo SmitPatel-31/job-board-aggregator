@@ -5,37 +5,48 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="Automated job board aggregating 1,000,000+ positions from major ATS platforms">
-    <title>Job Board Aggregator</title>
+    <meta name="color-scheme" content="light dark">
+    <title>Job Hunt Pipeline</title>
     <link rel="icon" type="image/ico" href="favicon.ico">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+        rel="stylesheet">
+
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <link href="styles.css" rel="stylesheet">
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" defer></script>
-    <script type="module" src="js/app.js" defer></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
-
-    <script data-goatcounter="https://feashliaa.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+    <script type="module" src="js/app.js" defer></script>
 </head>
 
 <body>
-    <main class="container mt-4">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <div class="flex-grow-1 text-center">
-                <h2 class="card-title mb-1">Job Board Aggregator</h2>
-                <p class="text-muted mb-0">
-                    <span id="total-jobs">Loading...</span> jobs from <span id="total-companies">0</span> companies
-                    <br>
-                    <small>Last updated: <span id="last-updated">--</span></small>
-                </p>
+    <!-- ==================== HEADER ==================== -->
+    <header class="app-header">
+        <div class="container d-flex align-items-center gap-3">
+            <div class="wordmark">
+                <span class="wordmark-dot" aria-hidden="true"></span>
+                Job Board
             </div>
-            <div class="view-toggle-container ms-3">
-                <div class="btn-group btn-group-sm" role="group">
-                    <button type="button" class="btn btn-primary view-toggle active" data-view="table"
-                        title="Table view">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
+
+            <p class="meta-line ms-auto mb-0 d-none d-md-flex">
+                <span>Updated <span id="last-updated">&mdash;</span></span>
+                <span id="data-source"></span>
+                <span class="sep" aria-hidden="true">|</span>
+                <a href="status.html" class="link-secondary">Pipeline status</a>
+            </p>
+
+            <div class="view-toggle-container">
+                <div class="btn-group" role="group" aria-label="View mode">
+                    <button type="button" class="btn view-toggle active" data-view="table" title="Table view"
+                        aria-label="Table view">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" aria-hidden="true">
                             <line x1="8" y1="6" x2="21" y2="6" />
                             <line x1="8" y1="12" x2="21" y2="12" />
                             <line x1="8" y1="18" x2="21" y2="18" />
@@ -44,9 +55,10 @@
                             <line x1="3" y1="18" x2="3.01" y2="18" />
                         </svg>
                     </button>
-                    <button type="button" class="btn btn-outline-primary view-toggle" data-view="map" title="Map view">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
+                    <button type="button" class="btn view-toggle" data-view="map" title="Map view"
+                        aria-label="Map view">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" aria-hidden="true">
                             <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
                             <line x1="8" y1="2" x2="8" y2="18" />
                             <line x1="16" y1="6" x2="16" y2="22" />
@@ -54,283 +66,409 @@
                     </button>
                 </div>
             </div>
+
+            <button type="button" class="btn-icon" id="theme-toggle" title="Toggle dark mode"
+                aria-label="Toggle dark mode">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" aria-hidden="true">
+                    <path
+                        d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+                </svg>
+            </button>
         </div>
-        <!-- Filter Panel -->
-        <div class="filter-panel card p-3 mb-3">
-            <button class="btn btn-primary w-100 filter-toggle collapsed" type="button" data-bs-toggle="collapse"
-                data-bs-target="#filter-controls" aria-expanded="false">
+    </header>
+
+    <main class="container">
+        <!-- ==================== STAT STRIP ==================== -->
+        <div class="stat-strip" role="group" aria-label="Dataset summary">
+            <div class="stat-cell">
+                <span class="stat-value" id="total-jobs">&mdash;</span>
+                <span class="stat-label">Jobs loaded</span>
+            </div>
+            <div class="stat-cell">
+                <span class="stat-value" id="total-companies">&mdash;</span>
+                <span class="stat-label">Companies</span>
+            </div>
+            <div class="stat-cell">
+                <span class="stat-value" id="stat-matching">&mdash;</span>
+                <span class="stat-label">Matching filters</span>
+            </div>
+            <div class="stat-cell">
+                <span class="stat-value" id="stat-fresh">&mdash;</span>
+                <span class="stat-label">New in 24h</span>
+            </div>
+        </div>
+
+        <!-- ==================== QUICK PRESETS ==================== -->
+        <div class="preset-row" id="preset-row" role="group" aria-label="Quick filters">
+            <button type="button" class="preset-btn" id="new-for-me" data-preset="new-for-me">
+                New for me
+                <span class="preset-hint">24h</span>
+            </button>
+            <button type="button" class="preset-btn" data-preset="my-roles">My roles</button>
+            <button type="button" class="preset-btn" data-preset="remote">Remote only</button>
+            <button type="button" class="preset-btn" data-preset="entry">Entry level</button>
+            <button type="button" class="preset-btn" data-preset="has-salary">Has salary</button>
+            <button type="button" class="preset-btn" data-preset="saved">Saved</button>
+            <button type="button" class="preset-btn" data-preset="applied">Applied</button>
+        </div>
+
+        <!-- ==================== ACTIVE FILTER CHIPS ==================== -->
+        <div class="chip-bar" id="chip-bar" role="group" aria-live="polite" aria-label="Active filters"></div>
+
+        <!-- ==================== FILTER PANEL ==================== -->
+        <div class="filter-panel">
+            <button class="filter-toggle collapsed" type="button" data-bs-toggle="collapse"
+                data-bs-target="#filter-controls" aria-expanded="false" aria-controls="filter-controls">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" aria-hidden="true">
+                    <line x1="4" y1="6" x2="20" y2="6" />
+                    <line x1="7" y1="12" x2="17" y2="12" />
+                    <line x1="10" y1="18" x2="14" y2="18" />
+                </svg>
                 Filters
-                <svg class="filter-chevron" xmlns="http://www.w3.org/2000/svg" width="16" height="16"
-                    fill="currentColor" viewBox="0 0 16 16">
+                <span class="filter-count" id="filter-count">&mdash;</span>
+                <svg class="filter-chevron" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"
+                    aria-hidden="true">
                     <path fill-rule="evenodd"
                         d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z" />
                 </svg>
             </button>
+
             <div id="filter-controls" class="collapse">
                 <div class="filter-controls">
-                    <div class="row g-2 mt-2">
-                        <div class="col-12 col-md-6">
-                            <label for="filter-title" class="form-label">Job Title</label>
-                            <input type="text" id="filter-title" class="form-control"
-                                placeholder="e.g., Software Engineer">
-                        </div>
-                        <div class="col-12 col-md-6">
-                            <label for="filter-company" class="form-label">Company</label>
-                            <input type="text" id="filter-company" class="form-control" placeholder="e.g., Google">
-                        </div>
-                        <div class="col-12 col-md-6">
-                            <label for="filter-location" class="form-label">Location</label>
-                            <input type="text" id="filter-location" class="form-control" placeholder="e.g., Remote">
-                        </div>
-                        <div class="col-12 col-md-6">
-                            <label for="filter-salary-min" class="form-label">Salary</label>
-                            <input type="number" id="filter-salary-min" class="form-control" placeholder="e.g., 80000">
-                        </div>
-                        <div class="col-12 col-md-6">
-                            <label for="filter-status" class="form-label">Status</label>
-                            <select id="filter-status" class="form-select">
-                                <option value="">All Statuses</option>
-                                <option value="saved">Saved</option>
-                                <option value="applied">Applied</option>
-                                <option value="ignored">Ignored</option>
-                            </select>
-                        </div>
-                        <div class="col-12 col-md-6">
-                            <label for="filter-ats" class="form-label">ATS</label>
-                            <select id="filter-ats" class="form-select">
-                                <option value="">All ATS</option>
-                                <option value="Ashby">Ashby</option>
-                                <option value="Bamboohr">BambooHR</option>
-                                <option value="Greenhouse">Greenhouse</option>
-                                <option value="Lever">Lever</option>
-                                <option value="Workday">Workday</option>
-                                <option value="iCIMS">iCIMS</option>
-                                <option value="Paylocity">Paylocity</option>
-                            </select>
-                        </div>
-                        <div class="col-12 col-md-6">
-                            <label for="filter-skill-level" class="form-label">Experience Level</label>
-                            <select id="filter-skill-level" class="form-select">
-                                <option value="">All</option>
-                                <option value="intern">Intern</option>
-                                <option value="entry">Entry</option>
-                                <option value="mid">Mid</option>
-                                <option value="senior">Senior</option>
-                            </select>
-                        </div>
-                        <div class="col-12 col-md-6">
-                            <label for="filter-posted" class="form-label">Date Posted</label>
-                            <select id="filter-posted" class="form-select">
-                                <option value="">Any time</option>
-                                <option value="1">Last 24 hours</option>
-                                <option value="3">Last 3 days</option>
-                                <option value="7">Last 7 days</option>
-                                <option value="30">Last month</option>
-                            </select>
-                        </div>
-                        <div class="col-12 col-md-6">
-                            <label for="filter-exclude" class="form-label">Exclude Keywords</label>
-                            <input type="text" id="filter-exclude" class="form-control"
-                                placeholder="e.g., senior, staff, lead">
-                        </div>
-                        <div class="col-12 col-md-6">
-                            <label for="filter-include" class="form-label">Include Keywords</label>
-                            <input type="text" id="filter-include" class="form-control"
-                                placeholder="e.g., senior, staff, lead">
-                        </div>
-                        <div class="col-12">
-                            <div class="form-check mt-2">
-                                <input class="form-check-input" type="checkbox" id="filter-hide-recruiters" checked>
-                                <label class="form-check-label" for="filter-hide-recruiters">
-                                    Hide recruiter-posted jobs
-                                </label>
-                            </div>
-                            <div class="form-check mt-2">
-                                <input class="form-check-input" type="checkbox" id="filter-remote-only">
-                                <label class="form-check-label" for="filter-remote-only">
-                                    Remote only
-                                </label>
-                            </div>
-                            <div class="form-check mt-2">
-                                <input class="form-check-input" type="checkbox" id="filter-hide-applied">
-                                <label class="form-check-label" for="filter-hide-applied">
-                                    Hide applied/ignored jobs
-                                </label>
-                            </div>
-                        </div>
 
-                        <div class="col-12">
-                            <button type="button" class="btn btn-secondary w-100 mt-2" id="apply-filters">
-                                Apply Filters
-                            </button>
-                            <button type="button" class="btn btn-outline-danger w-100 mt-2" id="clear-filters">
-                                Clear Filters
-                            </button>
+                    <!-- ---------- WHAT ---------- -->
+                    <fieldset class="filter-group">
+                        <legend class="filter-group-title">What</legend>
+                        <div class="row g-3">
+                            <div class="col-12 col-lg-4">
+                                <label for="filter-title" class="form-label">Job title</label>
+                                <input type="text" id="filter-title" class="form-control"
+                                    placeholder="e.g. software engineer" autocomplete="off">
+                            </div>
+                            <div class="col-12 col-lg-4">
+                                <label for="filter-include" class="form-label">Title must include (any)</label>
+                                <input type="text" id="filter-include" class="form-control"
+                                    placeholder="comma separated" autocomplete="off">
+                            </div>
+                            <div class="col-12 col-lg-4">
+                                <label for="filter-exclude" class="form-label">Title must not include</label>
+                                <input type="text" id="filter-exclude" class="form-control"
+                                    placeholder="senior, staff, lead" autocomplete="off">
+                            </div>
+                            <div class="col-12">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="filter-role-preset">
+                                    <label class="form-check-label" for="filter-role-preset">
+                                        Only <span id="role-preset-label">my roles</span>
+                                        <span class="text-muted small">&mdash; from data/role_filter.json</span>
+                                    </label>
+                                </div>
+                            </div>
                         </div>
+                    </fieldset>
+
+                    <!-- ---------- WHERE ---------- -->
+                    <fieldset class="filter-group">
+                        <legend class="filter-group-title">Where</legend>
+                        <div class="row g-3">
+                            <div class="col-12 col-lg-4">
+                                <label for="filter-country" class="form-label">Country / region</label>
+                                <select id="filter-country" class="form-select">
+                                    <option value="">Any location</option>
+                                </select>
+                            </div>
+                            <div class="col-12 col-lg-4">
+                                <label for="filter-location" class="form-label">City / state</label>
+                                <input type="text" id="filter-location" class="form-control" placeholder="e.g. austin"
+                                    autocomplete="off">
+                            </div>
+                            <div class="col-12 col-lg-4 d-flex flex-column justify-content-end">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="filter-remote-only">
+                                    <label class="form-check-label" for="filter-remote-only">Remote only</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox"
+                                        id="filter-include-unknown-country">
+                                    <label class="form-check-label" for="filter-include-unknown-country">
+                                        Include unresolved locations
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </fieldset>
+
+                    <!-- ---------- SENIORITY & PAY ---------- -->
+                    <fieldset class="filter-group">
+                        <legend class="filter-group-title">Seniority &amp; pay</legend>
+                        <div class="row g-3">
+                            <div class="col-12 col-lg-4">
+                                <label class="form-label" for="filter-skill-level-trigger">Experience level</label>
+                                <div class="multi" id="multi-skill-level" data-target="filter-skill-level">
+                                    <button type="button" class="multi-trigger" id="filter-skill-level-trigger"
+                                        aria-expanded="false" aria-haspopup="true">Any level</button>
+                                    <div class="multi-panel" role="group" aria-label="Experience level"></div>
+                                </div>
+                                <select id="filter-skill-level" class="visually-hidden" tabindex="-1"
+                                    aria-hidden="true">
+                                    <option value="">All</option>
+                                </select>
+                            </div>
+                            <div class="col-6 col-lg-4">
+                                <label for="filter-salary-min" class="form-label">Min salary</label>
+                                <input type="number" id="filter-salary-min" class="form-control" placeholder="80000"
+                                    min="0" step="5000" inputmode="numeric">
+                            </div>
+                            <div class="col-6 col-lg-4">
+                                <label for="filter-salary-max" class="form-label">Max salary</label>
+                                <input type="number" id="filter-salary-max" class="form-control" placeholder="any"
+                                    min="0" step="5000" inputmode="numeric">
+                            </div>
+                            <div class="col-12">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="filter-has-salary">
+                                    <label class="form-check-label" for="filter-has-salary">
+                                        Only jobs with a salary estimate
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </fieldset>
+
+                    <!-- ---------- FRESHNESS ---------- -->
+                    <fieldset class="filter-group">
+                        <legend class="filter-group-title">Freshness</legend>
+                        <div class="row g-3">
+                            <div class="col-12 col-lg-6">
+                                <label for="filter-freshness" class="form-label">First seen (new to the dataset)</label>
+                                <select id="filter-freshness" class="form-select">
+                                    <option value="">Any time</option>
+                                    <option value="2">Last 2 hours</option>
+                                    <option value="6">Last 6 hours</option>
+                                    <option value="12">Last 12 hours</option>
+                                    <option value="24">Last 24 hours</option>
+                                    <option value="72">Last 3 days</option>
+                                    <option value="168">Last 7 days</option>
+                                </select>
+                            </div>
+                            <div class="col-12 col-lg-6">
+                                <label for="filter-posted" class="form-label">Date posted (where reported)</label>
+                                <select id="filter-posted" class="form-select">
+                                    <option value="">Any time</option>
+                                    <option value="1">Last 24 hours</option>
+                                    <option value="3">Last 3 days</option>
+                                    <option value="7">Last 7 days</option>
+                                    <option value="30">Last month</option>
+                                </select>
+                            </div>
+                        </div>
+                    </fieldset>
+
+                    <!-- ---------- SOURCE & TRACKING ---------- -->
+                    <fieldset class="filter-group">
+                        <legend class="filter-group-title">Source &amp; tracking</legend>
+                        <div class="row g-3">
+                            <div class="col-12 col-lg-4">
+                                <label class="form-label" for="filter-ats-trigger">ATS platform</label>
+                                <div class="multi" id="multi-ats" data-target="filter-ats">
+                                    <button type="button" class="multi-trigger" id="filter-ats-trigger"
+                                        aria-expanded="false" aria-haspopup="true">All platforms</button>
+                                    <div class="multi-panel" role="group" aria-label="ATS platform"></div>
+                                </div>
+                                <select id="filter-ats" class="visually-hidden" tabindex="-1" aria-hidden="true">
+                                    <option value="">All ATS</option>
+                                </select>
+                            </div>
+                            <div class="col-12 col-lg-4">
+                                <label for="filter-company" class="form-label">Company</label>
+                                <input type="text" id="filter-company" class="form-control" placeholder="e.g. stripe"
+                                    autocomplete="off">
+                            </div>
+                            <div class="col-12 col-lg-4">
+                                <label for="filter-status" class="form-label">My status</label>
+                                <select id="filter-status" class="form-select">
+                                    <option value="">Any status</option>
+                                    <option value="saved">Saved</option>
+                                    <option value="applied">Applied</option>
+                                    <option value="ignored">Ignored</option>
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="filter-hide-recruiters"
+                                        checked>
+                                    <label class="form-check-label" for="filter-hide-recruiters">
+                                        Hide recruiter / agency postings
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="filter-hide-applied">
+                                    <label class="form-check-label" for="filter-hide-applied">
+                                        Hide jobs I've applied to or ignored
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </fieldset>
+
+                    <!-- ---------- SAVED SEARCHES ---------- -->
+                    <fieldset class="filter-group">
+                        <legend class="filter-group-title">Saved searches</legend>
+                        <div class="row g-2 align-items-end">
+                            <div class="col-12 col-lg-5">
+                                <label for="saved-search-select" class="form-label">Load a saved search</label>
+                                <select id="saved-search-select" class="form-select">
+                                    <option value="">None saved yet</option>
+                                </select>
+                            </div>
+                            <div class="col-6 col-lg-3">
+                                <button type="button" class="btn btn-secondary w-100" id="save-search">Save
+                                    current</button>
+                            </div>
+                            <div class="col-6 col-lg-2">
+                                <button type="button" class="btn btn-outline-danger w-100"
+                                    id="delete-search">Delete</button>
+                            </div>
+                            <div class="col-12 col-lg-2">
+                                <button type="button" class="btn btn-outline-secondary w-100" id="copy-link">Copy
+                                    link</button>
+                            </div>
+                        </div>
+                    </fieldset>
+
+                    <div class="d-flex flex-wrap gap-2 justify-content-end">
+                        <button type="button" class="btn btn-outline-danger" id="clear-filters">Clear all</button>
+                        <button type="button" class="btn btn-primary" id="apply-filters">Apply filters</button>
                     </div>
                 </div>
             </div>
         </div>
 
-
-
-        <!-- Pagination Controls (Top) -->
-        <div class="pagination-controls d-flex justify-content-between align-items-center mb-3">
-            <div>
-                <span id="page-info">Page 1 of 1</span>
-            </div>
-            <div class="btn-group">
-                <button class="btn btn-sm btn-outline-primary" id="prev-page" disabled>← Previous</button>
-                <button class="btn btn-sm btn-outline-primary" id="next-page">Next →</button>
-            </div>
-            <div>
-                <select id="per-page" class="form-select form-select-sm" style="width: auto;">
-                    <option value="25">25 per page</option>
-                    <option value="50" selected>50 per page</option>
-                    <option value="100">100 per page</option>
-                </select>
-            </div>
-        </div>
-
-        <!-- Loading State -->
-        <div id="loading" class="text-center py-5">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading jobs...</span>
-            </div>
-            <p class="mt-3">Loading job listings...</p>
-        </div>
-
-        <!-- Sort bar - mobile only -->
-        <div class="mobile-sort-bar d-none">
+        <!-- ==================== MOBILE SORT ==================== -->
+        <div class="mobile-sort-bar">
             <select id="mobile-sort-key" class="form-select form-select-sm">
-                <option value="">Sort by...</option>
+                <option value="">Sort by&hellip;</option>
                 <option value="company">Company</option>
                 <option value="title">Title</option>
                 <option value="location">Location</option>
                 <option value="ats">ATS</option>
-                <option value="posted">Posted Date</option>
+                <option value="salary">Salary</option>
+                <option value="posted">Posted date</option>
+                <option value="first_seen">First seen (newest)</option>
             </select>
-            <button id="mobile-sort-dir" class="btn btn-sm btn-outline-secondary">
-                A-Z
-            </button>
+            <button type="button" id="mobile-sort-dir" class="btn btn-sm btn-outline-secondary">A-Z</button>
         </div>
 
-        <!-- Job Table -->
-        <div id="results" style="display:none;">
-            <div class="table-responsive">
-                <table class="job-table table table-striped-desktop">
-                    <caption class="visually-hidden">List of Job Openings</caption>
-                    <thead>
-                        <tr>
-                            <th>Company</th>
-                            <th>Title</th>
-                            <th>Location</th>
-                            <th class="sortable">Salary</th>
-                            <th>ATS</th>
-                            <th>Apply</th>
-                            <th class="sortable">Posted</th>
-                            <th>Actions</th>
+        <!-- ==================== PAGINATION (TOP) ==================== -->
+        <div class="pagination-controls">
+            <span id="page-info">Page 1 of 1</span>
+            <div class="btn-group">
+                <button type="button" class="btn btn-sm btn-outline-primary" id="prev-page" disabled>&larr; Previous</button>
+                <button type="button" class="btn btn-sm btn-outline-primary" id="next-page">Next &rarr;</button>
+            </div>
+            <select id="per-page" class="form-select form-select-sm" style="width:auto;" aria-label="Rows per page">
+                <option value="25">25 per page</option>
+                <option value="50" selected>50 per page</option>
+                <option value="100">100 per page</option>
+            </select>
+        </div>
+
+        <!-- ==================== LOADING (SKELETON) ==================== -->
+        <div id="loading">
+            <div class="table-wrap">
+                <table class="skeleton-table" aria-hidden="true">
+                    <tbody>
+                        <tr class="skeleton-row">
+                            <td><span class="skeleton-bar w-70"></span></td>
+                            <td><span class="skeleton-bar w-90"></span></td>
+                            <td><span class="skeleton-bar w-55"></span></td>
+                            <td><span class="skeleton-bar w-45"></span></td>
+                            <td><span class="skeleton-bar w-60"></span></td>
                         </tr>
-                    </thead>
-                    <tbody id="jobs-body">
-                        <tr>
-                            <td colspan="8" class="text-center">No jobs found</td>
+                        <tr class="skeleton-row">
+                            <td><span class="skeleton-bar w-55"></span></td>
+                            <td><span class="skeleton-bar w-75"></span></td>
+                            <td><span class="skeleton-bar w-40"></span></td>
+                            <td><span class="skeleton-bar w-50"></span></td>
+                            <td><span class="skeleton-bar w-35"></span></td>
+                        </tr>
+                        <tr class="skeleton-row">
+                            <td><span class="skeleton-bar w-80"></span></td>
+                            <td><span class="skeleton-bar w-60"></span></td>
+                            <td><span class="skeleton-bar w-65"></span></td>
+                            <td><span class="skeleton-bar w-30"></span></td>
+                            <td><span class="skeleton-bar w-55"></span></td>
+                        </tr>
+                        <tr class="skeleton-row">
+                            <td><span class="skeleton-bar w-45"></span></td>
+                            <td><span class="skeleton-bar w-85"></span></td>
+                            <td><span class="skeleton-bar w-50"></span></td>
+                            <td><span class="skeleton-bar w-40"></span></td>
+                            <td><span class="skeleton-bar w-45"></span></td>
+                        </tr>
+                        <tr class="skeleton-row">
+                            <td><span class="skeleton-bar w-65"></span></td>
+                            <td><span class="skeleton-bar w-70"></span></td>
+                            <td><span class="skeleton-bar w-35"></span></td>
+                            <td><span class="skeleton-bar w-55"></span></td>
+                            <td><span class="skeleton-bar w-50"></span></td>
                         </tr>
                     </tbody>
                 </table>
             </div>
+            <p class="mt-3 text-center text-muted">Loading job listings&hellip;</p>
+        </div>
 
-            <!-- Pagination Controls (Bottom) -->
-            <div class="pagination-controls d-flex justify-content-between align-items-center mt-3">
-                <div>
-                    <span id="page-info-bottom">Page 1 of 1</span>
-                </div>
-                <div class="btn-group">
-                    <button class="btn btn-sm btn-outline-primary" id="prev-page-bottom" disabled>←
-                        Previous</button>
-                    <button class="btn btn-sm btn-outline-primary" id="next-page-bottom">Next →</button>
+        <!-- ==================== RESULTS ==================== -->
+        <div id="results" style="display:none;">
+            <div class="table-wrap">
+                <div class="table-responsive">
+                    <table class="job-table table table-striped-desktop">
+                        <caption class="visually-hidden">List of job openings</caption>
+                        <thead>
+                            <tr>
+                                <th>Company</th>
+                                <th>Title</th>
+                                <th>Location</th>
+                                <th class="sortable" aria-sort="none">Salary</th>
+                                <th>ATS</th>
+                                <th>Apply</th>
+                                <th class="sortable" aria-sort="none">Posted</th>
+                                <th class="sortable" aria-sort="none">First seen</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="jobs-body"></tbody>
+                    </table>
                 </div>
             </div>
-            <!-- Batch Update Button -->
-            <div class="mt-3 text-center">
-                <button type="button" class="btn btn-primary" id="process-batch">
-                    Update Selected Jobs
-                </button>
+
+            <div class="pagination-controls">
+                <span id="page-info-bottom">Page 1 of 1</span>
+                <div class="btn-group">
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="prev-page-bottom" disabled>&larr;
+                        Previous</button>
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="next-page-bottom">Next &rarr;</button>
+                </div>
+                <button type="button" class="btn btn-sm btn-primary" id="process-batch">Update selected</button>
             </div>
         </div>
 
-        <!-- Map View (hidden by default) -->
-        <div id="map-view" style="display:none; position: relative;">
-            <div id="map" style="height: 100%; width: 100%;"></div>
+        <!-- ==================== MAP ==================== -->
+        <div id="map-view" style="display:none;">
+            <div id="map"></div>
         </div>
     </main>
 
-    <footer class="text-center mt-5 mb-4">
+<footer class="site-footer">
         <div class="container">
-            <div class="row">
-                <!-- Main footer info -->
-                <div class="col-12 mb-3">
-                    <small class="text-muted">
-                        Data from Greenhouse, Lever, Ashby, Workday & more | Updated daily
-                    </small>
-                </div>
-
-                <!-- Social links -->
-                <div class="col-12 mb-3">
-                    <a href="https://github.com/Feashliaa" target="_blank" rel="noopener"
-                        class="text-decoration-none me-3">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor"
-                            viewBox="0 0 16 16" style="vertical-align: middle;">
-                            <path
-                                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
-                        </svg>
-                        GitHub
-                    </a>
-                    <a href="https://linkedin.com/in/riley-dorrington-946132197" target="_blank" rel="noopener"
-                        class="text-decoration-none me-3">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor"
-                            viewBox="0 0 16 16" style="vertical-align: middle;">
-                            <path
-                                d="M0 1.146C0 .513.526 0 1.175 0h13.65C15.474 0 16 .513 16 1.146v13.708c0 .633-.526 1.146-1.175 1.146H1.175C.526 16 0 15.487 0 14.854V1.146zm4.943 12.248V6.169H2.542v7.225h2.401zm-1.2-8.212c.837 0 1.358-.554 1.358-1.248-.015-.709-.52-1.248-1.342-1.248-.822 0-1.359.54-1.359 1.248 0 .694.521 1.248 1.327 1.248h.016zm4.908 8.212V9.359c0-.216.016-.432.08-.586.173-.431.568-.878 1.232-.878.869 0 1.216.662 1.216 1.634v3.865h2.401V9.25c0-2.22-1.184-3.252-2.764-3.252-1.274 0-1.845.7-2.165 1.193v.025h-.016a5.54 5.54 0 0 1 .016-.025V6.169h-2.4c.03.678 0 7.225 0 7.225h2.4z" />
-                        </svg>
-                        LinkedIn
-                    </a>
-                    <a href="mailto:jobboardaggregator@gmail.com" class="text-decoration-none">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor"
-                            viewBox="0 0 16 16" style="vertical-align: middle;">
-                            <path
-                                d="M.05 3.555A2 2 0 0 1 2 2h12a2 2 0 0 1 1.95 1.555L8 8.414.05 3.555ZM0 4.697v7.104l5.803-3.558L0 4.697ZM6.761 8.83l-6.57 4.027A2 2 0 0 0 2 14h12a2 2 0 0 0 1.808-1.144l-6.57-4.027L8 9.586l-1.239-.757Zm3.436-.586L16 11.801V4.697l-5.803 3.546Z" />
-                        </svg>
-                        Contact
-                    </a>
-                </div>
-
-                <!-- Donate section -->
-                <div class="col-12 mb-3">
-                    <div class="donate-section">
-                        <small class="text-muted d-block mb-2">Help keep this developing:</small>
-                        <form action="https://www.paypal.com/donate" method="post" target="_top"
-                            style="display: inline-block;">
-                            <input type="hidden" name="business" value="L7S2SKNB2TEN4">
-                            <input type="hidden" name="no_recurring" value="0">
-                            <input type="hidden" name="item_name" value="Help with Development Costs">
-                            <input type="hidden" name="currency_code" value="USD">
-                            <input type="image" src="https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif"
-                                border="0" name="submit" alt="Donate with PayPal">
-                        </form>
-                    </div>
-                </div>
-
-                <!-- Credits -->
-                <div class="col-12">
-                    <small class="text-muted">
-                        Built by <a href="https://github.com/Feashliaa/job-board-aggregator" target="_blank"
-                            rel="noopener">Riley Dorrington</a> |
-                        <a href="https://github.com/Feashliaa/job-board-aggregator" target="_blank" rel="noopener">View
-                            Source</a>
-                    </small>
-                </div>
-            </div>
+            <p class="meta-line justify-content-center mb-0">
+                <span>Aggregated from Greenhouse, Lever, Ashby, Workday, iCIMS, BambooHR and Paylocity</span>
+                <span class="sep" aria-hidden="true">|</span>
+                <a href="status.html" class="link-secondary">Pipeline status</a>
+            </p>
         </div>
     </footer>
 

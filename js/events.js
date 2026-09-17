@@ -30,13 +30,26 @@ export function setupEventListeners(app) {
     document.getElementById('apply-filters').addEventListener('click', () => app.applyFilters());
     document.getElementById('clear-filters').addEventListener('click', () => app.clearFilters());
 
-    // Enter key on text filter inputs
-    ['filter-title', 'filter-company', 'filter-location', 'filter-salary-min',
-        'filter-exclude', 'filter-include'].forEach(id => {
-            document.getElementById(id).addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') app.applyFilters();
-            });
+    // Text and number inputs filter as you type. 300ms is long enough to avoid
+    // re-scanning ~1.5M rows on every keystroke, short enough to feel live.
+    // Enter still applies immediately for anyone who expects it to.
+    const TEXT_FILTERS = ['filter-title', 'filter-company', 'filter-location',
+        'filter-salary-min', 'filter-salary-max', 'filter-exclude', 'filter-include'];
+    let typingTimer = null;
+    TEXT_FILTERS.forEach(id => {
+        const input = document.getElementById(id);
+        if (!input) return;
+        input.addEventListener('input', () => {
+            clearTimeout(typingTimer);
+            typingTimer = setTimeout(() => app.applyFilters(), 300);
         });
+        input.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                clearTimeout(typingTimer);
+                app.applyFilters();
+            }
+        });
+    });
 
     // ── Sorting — table header clicks ────────────────────────
     document.querySelectorAll('.job-table thead th').forEach((th, index) => {
@@ -84,6 +97,26 @@ export function setupEventListeners(app) {
     document.getElementById('filter-ats').addEventListener('change', () => app.applyFilters());
     document.getElementById('filter-skill-level').addEventListener('change', () => app.applyFilters());
     document.getElementById('filter-hide-applied').addEventListener('change', () => app.applyFilters());
+    document.getElementById('filter-freshness').addEventListener('change', () => app.applyFilters());
+    document.getElementById('filter-role-preset').addEventListener('change', () => app.applyFilters());
+    ['filter-country', 'filter-include-unknown-country', 'filter-posted',
+        'filter-has-salary', 'filter-remote-only', 'filter-hide-recruiters']
+        .forEach(id => {
+            document.getElementById(id)?.addEventListener('change', () => app.applyFilters());
+        });
+
+    // Keyboard shortcuts: / focuses search, Escape clears it.
+    document.addEventListener('keydown', (e) => {
+        const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
+        if (e.key === '/' && !typing) {
+            e.preventDefault();
+            document.getElementById('filter-title')?.focus();
+        }
+        if (e.key === 'Escape' && e.target.id === 'filter-title') {
+            e.target.value = '';
+            app.applyFilters();
+        }
+    });
 
     // ── Batch processing ─────────────────────────────────────
     document.getElementById('process-batch').addEventListener('click', () => app.handleBatch());

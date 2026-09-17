@@ -4,6 +4,8 @@
 
 import { escapeRegex } from './ui_utils.js';
 import { loadApplicationStatus } from './storage.js';
+import { matchesRolePreset } from './role_filter.js';
+import { matchesCountry } from './country_filter.js';
 
 /**
  * Read current filter values from the DOM.
@@ -17,11 +19,17 @@ export function readFilterInputs() {
         title: document.getElementById('filter-title').value.toLowerCase().trim(),
         company: document.getElementById('filter-company').value.toLowerCase().trim(),
         location: document.getElementById('filter-location').value.toLowerCase().trim(),
-        salary: document.getElementById('filter-salary-min').value,
+        salaryMin: document.getElementById('filter-salary-min').value,
+        salaryMax: document.getElementById('filter-salary-max').value,
+        hasSalary: document.getElementById('filter-has-salary').checked,
         status: document.getElementById('filter-status').value,
         ats: document.getElementById('filter-ats').value,
         skill_level: document.getElementById('filter-skill-level').value,
         posted: document.getElementById('filter-posted').value,
+        freshness: document.getElementById('filter-freshness').value,
+        rolePreset: document.getElementById('filter-role-preset').checked,
+        country: document.getElementById('filter-country').value,
+        includeUnknownCountry: document.getElementById('filter-include-unknown-country').checked,
         exclude: document.getElementById('filter-exclude').value.toLowerCase().trim(),
         include: document.getElementById('filter-include').value.toLowerCase().trim(),
     };
@@ -74,15 +82,33 @@ export function filterJobs(allJobs) {
         title: f.title,
         company: f.company,
         location: f.location,
-        salary: f.salary,
+        salaryMin: f.salaryMin,
+        salaryMax: f.salaryMax,
+        hasSalary: f.hasSalary,
         remoteOnly: f.remoteOnly,
         status: f.status,
         ats: f.ats,
         skill_level: f.skill_level,
         posted: f.posted,
+        freshness: f.freshness,
+        rolePreset: f.rolePreset,
+        country: f.country,
+        includeUnknownCountry: f.includeUnknownCountry,
         exclude: f.exclude,
         include: f.include
     };
+
+    const minSalary = parseInt(f.salaryMin, 10) || 0;
+    const maxSalary = parseInt(f.salaryMax, 10) || 0;
+    const toSet = v => {
+        const parts = (v || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
+        return parts.length ? new Set(parts) : null;
+    };
+    const atsSet = toSet(f.ats);
+    const levelSet = toSet(f.skill_level);
+    // Splitting keyword lists once rather than per job matters at ~1.5M rows.
+    const excludeTerms = f.exclude ? f.exclude.split(',').map(t => t.trim()).filter(Boolean) : null;
+    const includeTerms = f.include ? f.include.split(',').map(t => t.trim()).filter(Boolean) : null;
 
     const filteredJobs = allJobs.filter(job => {
         // Recruiter filter
@@ -105,13 +131,15 @@ export function filterJobs(allJobs) {
                 : (job.location || '').toLowerCase();
         }
 
-        // in your filter state collection
-        const minSalary = parseInt(document.getElementById('filter-salary-min').value) || 0;
-
-        // in filteredJobs
-        if (minSalary > 0) {
+        // Salary: a range now, plus an "estimate exists" switch. Estimates are
+        // joined from a static table, so most jobs have none -- requiring one is
+        // a meaningfully different question from bounding it.
+        if (f.hasSalary && typeof job.salary?.median !== 'number') return false;
+        if (minSalary > 0 || maxSalary > 0) {
             const median = job.salary?.median;
-            if (!median || median < minSalary) return false;
+            if (typeof median !== 'number') return false;
+            if (minSalary > 0 && median < minSalary) return false;
+            if (maxSalary > 0 && median > maxSalary) return false;
         }
 
         // Remote only
@@ -121,16 +149,26 @@ export function filterJobs(allJobs) {
             if (!isRemote) return false;
         }
 
-        // ATS
-        if (f.ats) {
-            const jobAts = (job.ats || '').toLowerCase();
-            if (jobAts !== f.ats.toLowerCase()) return false;
-        }
+        // ATS and level accept comma-separated sets so "Greenhouse OR Lever"
+        // and "entry AND mid" are expressible. Pre-split above the loop.
+        if (atsSet && !atsSet.has((job.ats || '').toLowerCase())) return false;
+        if (levelSet && !levelSet.has((job.skill_level || '').toLowerCase())) return false;
 
-        // Skill level
-        if (f.skill_level) {
-            const jobSkillLevel = (job.skill_level || '').toLowerCase();
-            if (jobSkillLevel !== f.skill_level.toLowerCase()) return false;
+        // Region / country
+        if (!matchesCountry(job, f.country, f.includeUnknownCountry)) return false;
+
+        // Role preset (software / cloud / devops at the configured levels)
+        if (f.rolePreset && !matchesRolePreset(job)) return false;
+
+        // Freshness: first_seen is the exact "new to the dataset" signal produced
+        // by the merge key-diff, so it's what "new jobs" means here. A job with no
+        // first_seen predates the field and is definitionally not new.
+        if (f.freshness) {
+            const hours = parseFloat(f.freshness);
+            if (!job.first_seen) return false;
+            const t = Date.parse(job.first_seen);
+            if (isNaN(t)) return false;
+            if ((Date.now() - t) / 3600000 > hours) return false;
         }
 
         // Date posted (within N days)
@@ -143,17 +181,9 @@ export function filterJobs(allJobs) {
             if (ageDays > days) return false;
         }
 
-        // Exclude title keywords
-        if (f.exclude) {
-            const excludeTerms = f.exclude.split(',').map(t => t.trim()).filter(Boolean);
-            if (excludeTerms.some(term => title.includes(term))) return false;
-        }
-
-        // Include Title keywords
-        if (f.include) {
-            const includeTerms = f.include.split(',').map(t => t.trim()).filter(Boolean);
-            if (!includeTerms.some(term => title.includes(term))) return false;
-        }
+        // Title keyword lists
+        if (excludeTerms && excludeTerms.some(term => title.includes(term))) return false;
+        if (includeTerms && !includeTerms.some(term => title.includes(term))) return false;
 
         return (
             (!titleRegex || titleRegex.test(title)) &&
@@ -171,12 +201,18 @@ export function clearFilterInputs() {
     document.getElementById('filter-company').value = '';
     document.getElementById('filter-location').value = '';
     document.getElementById('filter-salary-min').value = '';
+    document.getElementById('filter-salary-max').value = '';
+    document.getElementById('filter-has-salary').checked = false;
     document.getElementById('filter-exclude').value = '';
     document.getElementById('filter-include').value = '';
     document.getElementById('filter-status').value = '';
     document.getElementById('filter-ats').value = '';
     document.getElementById('filter-skill-level').value = '';
     document.getElementById('filter-posted').value = '';
+    document.getElementById('filter-freshness').value = '';
+    document.getElementById('filter-role-preset').checked = false;
+    document.getElementById('filter-country').value = '';
+    document.getElementById('filter-include-unknown-country').checked = false;
     document.getElementById('filter-hide-recruiters').checked = true;
     document.getElementById('filter-remote-only').checked = false;
     document.getElementById('filter-hide-applied').checked = false;

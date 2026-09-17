@@ -70,6 +70,26 @@ export function createColumns() {
             }
         },
         {
+            key: 'first_seen',
+            label: 'First Seen',
+            sortable: true,
+            render: job => {
+                if (!job.first_seen) return '<span class="text-muted">—</span>';
+                const d = new Date(job.first_seen);
+                if (isNaN(d.getTime())) return '<span class="text-muted">—</span>';
+                const hours = (Date.now() - d) / 3600000;
+                if (hours < 24) {
+                    const label = hours < 1
+                        ? 'just now'
+                        : `${Math.floor(hours)}h ago`;
+                    return `<span class="badge bg-success">NEW</span> <span class="text-muted small">${label}</span>`;
+                }
+                const days = Math.floor(hours / 24);
+                if (days === 1) return '<span class="text-muted small">yesterday</span>';
+                return `<span class="text-muted small">${days}d ago</span>`;
+            }
+        },
+        {
             key: 'actions',
             label: 'Actions',
             sortable: false,
