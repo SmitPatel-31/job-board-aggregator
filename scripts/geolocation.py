@@ -352,6 +352,79 @@ FAMOUS_CITY_DEFAULTS = {
     "columbus": "US",
     "richmond": "US",
     "springfield": "US",
+    # Large US cities that share a name with a smaller foreign city. Without
+    # these, the city-only fallback picked whichever row appeared first in
+    # locations.json, which sent "Los Angeles" to Chile, "Houston" to British
+    # Columbia, "Dallas" to Melbourne and "San Jose" to Argentina -- wrong
+    # country AND wrong heatmap coordinates. Measured at ~2,400 affected jobs.
+    "los angeles": "US",
+    "san diego": "US",
+    "san jose": "US",  # San Jose CA, not San José Argentina/Costa Rica
+    "santa clara": "US",
+    "dallas": "US",
+    "houston": "US",
+    "miami": "US",
+    "cleveland": "US",
+    "sacramento": "US",
+    "rochester": "US",
+    "albany": "US",
+    "arlington": "US",
+    "salem": "US",
+    "phoenix": "US",
+    "atlanta": "US",
+    "detroit": "US",
+    "baltimore": "US",
+    "milwaukee": "US",
+    "nashville": "US",
+    "memphis": "US",
+    "pittsburgh": "US",
+    "cincinnati": "US",
+    "minneapolis": "US",
+    "philadelphia": "US",
+    # Deliberately NOT listed: birmingham, manchester, cambridge, york.
+    # Those genuinely favour the UK, so guessing US would be worse.
+}
+
+# Pinning the country alone isn't enough for coords: several of these names also
+# belong to small US towns, and the city-only fallback would happily return
+# Houston, Missouri or San Jose, Illinois. locations.json carries no population
+# column to break the tie, so the intended state is named explicitly. Keyed the
+# same as FAMOUS_CITY_DEFAULTS; only needed where the largest city isn't the
+# first matching row.
+FAMOUS_CITY_ADMIN = {
+    "houston": "tx",
+    "dallas": "tx",
+    "san jose": "ca",
+    "san diego": "ca",
+    "santa clara": "ca",
+    "los angeles": "ca",
+    "sacramento": "ca",
+    "arlington": "va",
+    "albany": "ny",
+    "rochester": "ny",
+    "salem": "or",
+    "portland": "or",
+    "columbus": "oh",
+    "cleveland": "oh",
+    "cincinnati": "oh",
+    "richmond": "va",
+    "springfield": "il",
+    "miami": "fl",
+    "phoenix": "az",
+    "atlanta": "ga",
+    "detroit": "mi",
+    "baltimore": "md",
+    "milwaukee": "wi",
+    "nashville": "tn",
+    "memphis": "tn",
+    "pittsburgh": "pa",
+    "philadelphia": "pa",
+    "minneapolis": "mn",
+    "denver": "co",
+    "seattle": "wa",
+    "boston": "ma",
+    "chicago": "il",
+    "san francisco": "ca",
 }
 
 
@@ -433,6 +506,88 @@ def strip_work_arrangement(normalized):
     return normalized
 
 
+# "Polaris, OH 43210" -- a US state abbreviation followed by a ZIP. Some ATSes
+# put raw street addresses in the location field, which the gazetteer can't
+# match, but the state+ZIP pair is distinctive enough to pin the country.
+US_STATE_ZIP_RE = re.compile(r"\b([A-Za-z]{2})\s+\d{5}(?:-\d{4})?\b")
+
+
+def _country_from_address(location_str):
+    """Recover US from a free-text street address, or None."""
+    match = US_STATE_ZIP_RE.search(location_str or "")
+    if match and match.group(1).lower() in US_STATES:
+        return "US"
+    return None
+
+
+# Country aliases of 3+ characters, longest first so "united states of america"
+# wins over "united states". Deliberately excludes 2-letter codes: matching
+# those as bare words across free text turns "Berlin, DE" into Delaware and
+# "Cork, IN" into Indiana. Longer aliases are unambiguous enough to trust.
+_LONG_ALIASES = sorted((a for a in COUNTRY_ALIASES if len(a) >= 3), key=len, reverse=True)
+LONG_ALIAS_RE = re.compile(
+    r"\b(" + "|".join(re.escape(a) for a in _LONG_ALIASES) + r")\b", re.IGNORECASE
+)
+
+# Delimiters used by ATS location strings that aren't commas:
+# "USA-Illinois-Chicago", "San Francisco, CA • New York, NY • United States"
+_DELIMITERS = re.compile(r"[,\-–—•|/]+")
+
+
+def _country_from_freetext(location_str):
+    """Last-resort country scan over a location string the gazetteer missed.
+
+    Handles the dash- and bullet-separated formats several ATSes emit, where the
+    country is spelled out but never lands in a comma-delimited position the
+    main parser inspects -- e.g. "United States - Illinois - Lake Forest".
+    Measured at ~12.7k jobs that were otherwise country-less.
+    """
+    if not location_str:
+        return None
+
+    # Exact token match first: most precise.
+    for part in _DELIMITERS.split(location_str):
+        token = " ".join(part.split()).lower()
+        if token in COUNTRY_ALIASES:
+            return COUNTRY_ALIASES[token]
+
+    # Then a word-boundary search for spelled-out names ("Wilmington NC USA").
+    match = LONG_ALIAS_RE.search(location_str)
+    if match:
+        return COUNTRY_ALIASES[match.group(1).lower()]
+    return None
+
+
+def _country_from_remote(normalized):
+    """Best-effort country for a remote posting ("Remote - US", "Remote, Canada").
+
+    parse_job_location bails out as soon as it sees a remote keyword, so the
+    country token in these strings used to be discarded entirely. That made
+    "Remote - US" invisible to a US-only filter despite being one of the most
+    common location strings in the dataset.
+
+    Only the country is recovered here; city and admin stay unset so coords and
+    the heatmap behave exactly as before.
+
+    Note: 'ar' is both Argentina and Arkansas. Country aliases are checked
+    first, so it resolves to AR-the-country. It's the only such collision
+    between COUNTRY_ALIASES and US_STATES.
+    """
+    text = normalized
+    for kw in REMOTE_KEYWORDS | TIMEZONE_KEYWORDS:
+        text = text.replace(kw, " ")
+
+    for part in re.split(r"[,\-—|/()]", text):
+        token = " ".join(part.split())
+        if not token:
+            continue
+        if token in COUNTRY_ALIASES:
+            return COUNTRY_ALIASES[token]
+        if token in US_STATES:
+            return "US"
+    return None
+
+
 def parse_job_location(location_str):
     result = {"remote": False, "city": None, "admin": None, "country": None}
 
@@ -446,10 +601,12 @@ def parse_job_location(location_str):
 
     if any(kw in normalized for kw in REMOTE_KEYWORDS):
         result["remote"] = True
+        result["country"] = _country_from_remote(normalized)
         return result
 
     if any(kw in normalized for kw in TIMEZONE_KEYWORDS):
         result["remote"] = True
+        result["country"] = _country_from_remote(normalized)
         return result
 
     normalized = strip_work_arrangement(normalized)
@@ -545,6 +702,9 @@ def build_lookup(locations_path):
         "city_country": {},
         "city_admin": {},
         "city": {},
+        # city -> ISO country code, so a city-only match can still report a
+        # country for the frontend's region filter
+        "city_to_country": {},
     }
 
     for row in data:
@@ -569,6 +729,8 @@ def build_lookup(locations_path):
             maps["city_admin"].setdefault(key, coords)
 
         maps["city"].setdefault(city_n, coords)
+        if country:
+            maps["city_to_country"].setdefault(city_n, country)
 
     return maps
 
@@ -577,46 +739,99 @@ def build_lookup(locations_path):
 
 
 def lookup_location(location_str, maps):
+    """Resolve a raw location string to {remote, coords, country}.
+
+    country is an ISO 3166-1 alpha-2 code, or None when it can't be determined.
+    It's returned even when coords resolution fails, because the frontend's
+    region filter only needs the country -- knowing a job is in the US is useful
+    even if the exact city never matched the gazetteer.
+    """
     parsed = parse_job_location(location_str)
 
+    # An explicit country survives a remote match ("Remote - US", "Remote, Canada").
     if parsed["remote"]:
-        return {"remote": True, "coords": None}
+        return {"remote": True, "coords": None, "country": parsed["country"]}
 
     city = parsed["city"]
     admin = parsed["admin"].lower() if parsed["admin"] else None
     country = parsed["country"]
 
     if not city:
-        return {"remote": False, "coords": None}
-    
+        return {
+            "remote": False,
+            "coords": None,
+            "country": country or _country_from_freetext(location_str),
+        }
+
     # Map NYC boroughs to New York City (only when admin explicitly NY)
     if city in NYC_BOROUGHS and admin == "ny":
         city = "new york city"
 
+    # parse_job_location treats any 2-letter US state token as implying the US,
+    # which misreads foreign 2-letter codes -- "Berlin, DE" becomes Delaware,
+    # "Cork, IE" would become... nothing sensible. When the gazetteer has no
+    # such city in that US state but does know the city in another country,
+    # trust the gazetteer over the abbreviation.
+    if country == "US" and admin and len(admin) == 2:
+        if not maps["city_admin_country"].get(f"{city}|{admin}|US"):
+            known = maps["city_to_country"].get(city)
+            if known and known != "US":
+                country = known
+
     if city and admin and country:
         coords = maps["city_admin_country"].get(f"{city}|{admin}|{country}")
         if coords:
-            return {"remote": False, "coords": coords}
+            return {"remote": False, "coords": coords, "country": country}
 
     if city and country:
         coords = maps["city_country"].get(f"{city}|{country}")
         if coords:
-            return {"remote": False, "coords": coords}
+            return {"remote": False, "coords": coords, "country": country}
 
     if city and admin:
         coords = maps["city_admin"].get(f"{city}|{admin}")
         if coords:
-            return {"remote": False, "coords": coords}
+            return {
+                "remote": False,
+                "coords": coords,
+                "country": country or maps["city_to_country"].get(city),
+            }
 
     # NEW: famous-city default before city-only fallback
     if city in FAMOUS_CITY_DEFAULTS and not country:
         default_country = FAMOUS_CITY_DEFAULTS[city]
+        # Prefer the explicitly pinned state so coords land on the large city
+        # rather than a same-named small town in another state.
+        default_admin = FAMOUS_CITY_ADMIN.get(city)
+        if default_admin:
+            coords = maps["city_admin_country"].get(
+                f"{city}|{default_admin}|{default_country}"
+            )
+            if coords:
+                return {
+                    "remote": False,
+                    "coords": coords,
+                    "country": default_country,
+                }
         coords = maps["city_country"].get(f"{city}|{default_country}")
         if coords:
-            return {"remote": False, "coords": coords}
+            return {"remote": False, "coords": coords, "country": default_country}
 
     coords = maps["city"].get(city)
     if coords:
-        return {"remote": False, "coords": coords}
+        return {
+            "remote": False,
+            "coords": coords,
+            "country": country or maps["city_to_country"].get(city),
+        }
 
-    return {"remote": False, "coords": None}
+    return {
+        "remote": False,
+        "coords": None,
+        "country": (
+            country
+            or maps["city_to_country"].get(city)
+            or _country_from_address(location_str)
+            or _country_from_freetext(location_str)
+        ),
+    }
