@@ -1,0 +1,16 @@
+[Unit]
+Description=Run the job board full scrape daily
+
+[Timer]
+# 07:33 UTC, matching the original GitHub Actions schedule. Deliberately not
+# aligned with a fast-tier slot (those are at 01/04/07/10/13/16/19/22:17) --
+# they share a lock, so an overlap would just skip a fast run.
+OnCalendar=*-*-* 07:33:00
+
+Persistent=true
+RandomizedDelaySec=10m
+
+Unit=jobboard-full.service
+
+[Install]
+WantedBy=timers.target

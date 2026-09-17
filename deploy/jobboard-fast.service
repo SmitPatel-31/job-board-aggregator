@@ -1,0 +1,38 @@
+[Unit]
+Description=Job board fast-tier scrape (shortlisted companies)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=jobboard
+Group=jobboard
+WorkingDirectory=/srv/jobboard/app
+EnvironmentFile=/etc/jobboard.env
+ExecStart=/srv/jobboard/app/scripts/run_pipeline.sh fast
+
+# Measured, not guessed: a real fast run took >1.5h because Ashby rate-limits
+# (hundreds of HTTP 429s, each triggering exponential backoff). Six of seven
+# platforms finish in minutes; Ashby alone dominates. 2h would have killed runs
+# mid-flight, so this is 5h -- still bounded, since the shared flock makes a
+# later run skip rather than pile up.
+TimeoutStartSec=5h
+
+# Keep nginx responsive while the scrape saturates the network and CPU.
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+
+# Measured peak is ~2.5GB for a fast run. MemoryHigh applies reclaim pressure
+# before the kernel OOM killer gets involved; MemoryMax is the hard ceiling.
+MemoryHigh=3G
+MemoryMax=5G
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/srv/jobboard
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,20 @@
+[Unit]
+Description=Run the job board fast-tier scrape every 6 hours
+
+[Timer]
+# Every 6 hours at :17 past, offset off the hour so it doesn't line up with
+# everyone else's cron. 01:17, 07:17, 13:17, 19:17 UTC.
+#
+# Was every 3h, widened after measuring a real run: Ashby's 429 backoff pushes
+# the fast tier past 1.5h, so a 3h interval left almost no headroom. Drop Ashby
+# from the shortlist (see deploy/README.md) to go back to 3h.
+OnCalendar=*-*-* 01/6:17:00
+
+# Skip the full 6h wait after a reboot, but don't stampede at boot either.
+Persistent=true
+RandomizedDelaySec=5m
+
+Unit=jobboard-fast.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,34 @@
+[Unit]
+Description=Job board full scrape (all companies) + trend snapshot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=jobboard
+Group=jobboard
+WorkingDirectory=/srv/jobboard/app
+EnvironmentFile=/etc/jobboard.env
+ExecStart=/srv/jobboard/app/scripts/run_pipeline.sh full
+
+# ~60k companies across seven platforms. The GitHub workflow allowed 6h; allow
+# more here since a single host has less parallel bandwidth than a CI runner.
+TimeoutStartSec=8h
+
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+# A full scrape holds the existing dataset AND the new one at once -- measured
+# at ~2.3GB for the existing 1.46M jobs alone, so budget roughly double.
+MemoryHigh=6G
+MemoryMax=7G
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/srv/jobboard
+
+[Install]
+WantedBy=multi-user.target
