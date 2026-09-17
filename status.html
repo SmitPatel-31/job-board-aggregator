@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pipeline Status — Job Hunt Pipeline</title>
+    <meta name="description" content="When the job data was last fetched, and per-platform scrape health">
+    <link rel="icon" type="image/ico" href="favicon.ico">
+    <meta name="color-scheme" content="light dark">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+        rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <script type="module" src="js/status.js" defer></script>
+</head>
+
+<body>
+    <div class="container py-4 status-page">
+
+        <div class="d-flex justify-content-between align-items-start mb-4 gap-3">
+            <div>
+                <h1 class="mb-1 page-title">Pipeline Status</h1>
+                <p class="text-muted mb-0">When the job data was last fetched, and how each platform is holding up.</p>
+            </div>
+            <div class="d-flex gap-2 flex-none">
+                <a href="index.html" class="btn btn-outline-primary btn-sm">&larr; Job board</a>
+                <button type="button" class="btn-icon" id="theme-toggle" title="Toggle dark mode"
+                    aria-label="Toggle dark mode">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" aria-hidden="true">
+                        <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Freshness headline -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <div id="freshness-banner" class="alert mb-3" role="status">
+                    Loading&hellip;
+                </div>
+                <div class="stat-strip mb-0">
+                    <div class="stat-cell">
+                        <span class="stat-value" id="stat-total">&mdash;</span>
+                        <span class="stat-label">Total jobs</span>
+                    </div>
+                    <div class="stat-cell">
+                        <span class="stat-value" id="stat-new">&mdash;</span>
+                        <span class="stat-label">New last run</span>
+                    </div>
+                    <div class="stat-cell">
+                        <span class="stat-value" id="stat-companies">&mdash;</span>
+                        <span class="stat-label">Active companies</span>
+                    </div>
+                    <div class="stat-cell">
+                        <span class="stat-value" id="stat-chunks">&mdash;</span>
+                        <span class="stat-label">Data chunks</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Per-platform, latest snapshot -->
+        <div class="card mb-4">
+            <div class="card-header">
+                Jobs per platform
+                <small class="text-muted" id="platform-date"></small>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <th scope="col"ead>
+                        <tr>
+                            <th scope="col">Platform</th>
+                            <th scope="col" class="text-end">Jobs</th>
+                            <th scope="col" class="text-end">vs 7-day average</th>
+                            <th scope="col"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="platform-rows">
+                        <tr>
+                            <td colspan="4" class="text-center text-muted">Loading&hellip;</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="card-footer small text-muted">
+                A platform far below its own recent average usually means that ATS started
+                rate-limiting or blocking the scraper, not that the jobs disappeared.
+            </div>
+        </div>
+
+        <!-- Recent history -->
+        <div class="card mb-4">
+            <div class="card-header">Recent runs</div>
+            <div class="card-body p-0">
+                <table class="table table-sm table-striped mb-0">
+                    <th scope="col"ead>
+                        <tr>
+                            <th scope="col">Date</th>
+                            <th scope="col" class="text-end">Total jobs</th>
+                            <th scope="col" class="text-end">Change</th>
+                            <th scope="col" class="text-end">Companies</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-rows">
+                        <tr>
+                            <td colspan="4" class="text-center text-muted">Loading&hellip;</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <p class="text-muted small" id="source-note"></p>
+    </div>
+</body>
+
+</html>
