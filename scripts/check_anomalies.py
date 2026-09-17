@@ -10,6 +10,7 @@ Usage:
 import json
 import os
 import statistics
+import sys
 from pathlib import Path
 
 TRENDS_FILE = Path("data/trends/daily.jsonl")
@@ -32,10 +33,14 @@ def load_history():
 
 
 def main():
+    if not TRENDS_FILE.exists():
+        print(f"No trend history at {TRENDS_FILE} yet. Skipping.")
+        return 0
+
     history = load_history()
     if len(history) < MIN_DAYS + 1:
         print(f"Not enough history ({len(history)} days). Skipping.")
-        return
+        return 0
 
     today = history[-1]
     baseline_days = history[-(LOOKBACK_DAYS + 1) : -1]
@@ -70,14 +75,24 @@ def main():
     if anomalies:
         report = "Job scraper anomaly detected:\n\n" + "\n".join(anomalies)
         print(report)
-        with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-            f.write("anomaly=true\n")
-            f.write("report<<EOF\n")
-            f.write(report + "\n")
-            f.write("EOF\n")
+
+        # On GitHub Actions, hand the report to the workflow so it can open an
+        # issue. Anywhere else (e.g. a systemd timer on your own server) there's no
+        # GITHUB_OUTPUT, so exit non-zero instead and let the caller react --
+        # printing to stdout alone would be invisible in a scheduled run.
+        github_output = os.environ.get("GITHUB_OUTPUT")
+        if github_output:
+            with open(github_output, "a") as f:
+                f.write("anomaly=true\n")
+                f.write("report<<EOF\n")
+                f.write(report + "\n")
+                f.write("EOF\n")
+        else:
+            return 1
     else:
         print("All platforms within normal range.")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
