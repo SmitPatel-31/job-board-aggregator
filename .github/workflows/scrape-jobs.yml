@@ -132,10 +132,12 @@ jobs:
           JOBS=$(jq -r '.total_jobs' data/metadata.json)
           COMPANIES=$(jq '. | length' scripts/output/active_companies.json)
           DATE=$(date +'%Y-%m-%d %H:%M UTC')
-          echo "jobs=$JOBS" >> $GITHUB_OUTPUT
-          echo "companies=$COMPANIES" >> $GITHUB_OUTPUT
-          echo "date=$DATE" >> $GITHUB_OUTPUT
-          echo "tag=$(date +'%Y%m%d-%H%M')" >> $GITHUB_OUTPUT
+          {
+            echo "jobs=$JOBS"
+            echo "companies=$COMPANIES"
+            echo "date=$DATE"
+            echo "tag=$(date +'%Y%m%d-%H%M')"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Compress release files
         run: gzip -k scripts/output/all_jobs.json
@@ -144,7 +146,7 @@ jobs:
         run: |
           RELEASES=$(gh release list --limit 100 --json tagName -q '.[10:] | .[].tagName')
           if [ -n "$RELEASES" ]; then
-            echo "$RELEASES" | while read tag; do
+            echo "$RELEASES" | while read -r tag; do
               echo "Deleting release: $tag"
               gh release delete "$tag" --cleanup-tag -y
             done

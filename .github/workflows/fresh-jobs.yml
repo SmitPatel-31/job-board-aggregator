@@ -29,6 +29,10 @@ jobs:
   fresh:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    # Surfaced so the deploy job can tell "nothing to publish" apart from
+    # "publish failed" instead of erroring on a missing artifact.
+    outputs:
+      published: ${{ steps.shortlist.outputs.found }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -63,9 +67,9 @@ jobs:
         id: shortlist
         run: |
           if [ -f data/role_shortlist.json ]; then
-            echo "found=true" >> $GITHUB_OUTPUT
+            echo "found=true" >> "$GITHUB_OUTPUT"
           else
-            echo "found=false" >> $GITHUB_OUTPUT
+            echo "found=false" >> "$GITHUB_OUTPUT"
             echo "::warning::No data/role_shortlist.json. Run the full scrape once to generate it."
           fi
 
@@ -84,7 +88,7 @@ jobs:
         run: |
           NEW=$(jq -r '.new_jobs // 0' data/metadata.json)
           TOTAL=$(jq -r '.total_jobs' data/metadata.json)
-          echo "### Fresh scrape: $NEW new jobs (dataset now $TOTAL)" >> $GITHUB_STEP_SUMMARY
+          echo "### Fresh scrape: $NEW new jobs (dataset now $TOTAL)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Assemble the Pages bundle
         if: steps.shortlist.outputs.found == 'true'
@@ -98,6 +102,7 @@ jobs:
 
   deploy:
     needs: fresh
+    if: needs.fresh.outputs.published == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
