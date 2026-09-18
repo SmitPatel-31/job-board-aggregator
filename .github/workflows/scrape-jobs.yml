@@ -1,7 +1,13 @@
 name: Update Job Listings
 on:
-  schedule:
-    - cron: "33 7 * * *" # 3:33am EST
+  # Cron is disabled on purpose. This repo is private, where GitHub Actions is
+  # capped at 2,000 minutes/month, and a single full scrape runs for hours --
+  # the schedule would exhaust the quota within days. Scheduling lives on the
+  # self-hosted box instead (see deploy/README.md systemd timers).
+  # Re-enable by uncommenting, ideally only if the repo is public.
+  #
+  # schedule:
+  #   - cron: "33 7 * * *"
   workflow_dispatch: # Manual trigger button
 
 permissions:
@@ -20,7 +26,7 @@ jobs:
     timeout-minutes: 360 # 6 hours max to prevent hanging
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # Pull yesterday's chunk data from the job-board-data repo into the working
       # tree so merge_data.py can read existing jobs and merge into them.
@@ -29,10 +35,19 @@ jobs:
 
       - name: Fetch existing data from data repo
         run: |
-          git clone --depth 1 https://github.com/${{ github.repository_owner }}/job-board-data.git prev-data
+          # A missing data repo is the normal first-run state, so don't let a
+          # failed clone kill the job with exit 128. Without previous data the
+          # merge simply starts from this scrape.
           mkdir -p data/chunks
-          cp -r prev-data/data/chunks/* data/chunks/ 2>/dev/null || true
-          cp prev-data/data/metadata.json data/metadata.json 2>/dev/null || true
+          if git clone --depth 1 \
+               "https://github.com/${{ github.repository_owner }}/job-board-data.git" prev-data 2>/dev/null; then
+            cp -r prev-data/data/chunks/* data/chunks/ 2>/dev/null || true
+            cp prev-data/data/metadata.json data/metadata.json 2>/dev/null || true
+            echo "Loaded previous dataset from the data repo."
+          else
+            echo "::warning::No job-board-data repo found for ${{ github.repository_owner }}."
+            echo "Starting from an empty dataset; nothing accumulated will be lost yet."
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -146,7 +161,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create release with job data
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: jobs-${{ steps.metadata.outputs.tag }}
           name: Jobs Update - ${{ steps.metadata.outputs.date }}
@@ -191,6 +206,7 @@ jobs:
           # can never be parsed as shell.
           ANOMALY_REPORT: ${{ steps.anomaly.outputs.report }}
       - name: Push regenerated data to data repo
+        if: env.DATA_REPO_TOKEN != ''
         run: |
           git clone https://x-access-token:${DATA_REPO_TOKEN}@github.com/${{ github.repository_owner }}/job-board-data.git data-repo
           cd data-repo

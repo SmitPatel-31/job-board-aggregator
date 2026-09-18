@@ -1,12 +1,17 @@
 name: Deploy static content to Pages
 
 on:
-  schedule:
-    - cron: "0 0 * * *"
-  workflow_run:
-    workflows: ["Update Job Listings"]
-    types: [completed]
-    branches: [main]
+  # Disabled: GitHub Pages requires a paid plan on private repositories, so
+  # these triggers would fail on every run. The site is served by nginx on the
+  # self-hosted box instead (deploy/nginx-jobboard.conf).
+  # Re-enable if the repo is made public.
+  #
+  # schedule:
+  #   - cron: "0 0 * * *"
+  # workflow_run:
+  #   workflows: ["Update Job Listings"]
+  #   types: [completed]
+  #   branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -27,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact

@@ -1,7 +1,10 @@
 name: Test Job URL's
 on:
-  schedule:
-    - cron: "00 1 * * *"
+  # Disabled: burns private-repo Actions minutes and hits live ATS endpoints.
+  # Run it by hand when you want a health check.
+  #
+  # schedule:
+  #   - cron: "00 1 * * *"
   workflow_dispatch: # Manual trigger button
 jobs:
   health-check:
@@ -9,7 +12,7 @@ jobs:
     timeout-minutes: 15 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -17,7 +20,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install -r requirements.txt
 
       - name: Run Job Tester
         run: |

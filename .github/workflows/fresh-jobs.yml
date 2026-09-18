@@ -9,8 +9,11 @@ name: Fresh Jobs (fast tier)
 # scrape didn't cover, so a partial scrape is safe to merge.
 
 on:
-  schedule:
-    - cron: "17 * * * *" # hourly, offset off the hour to avoid Actions peak queueing
+  # Cron disabled -- see the note in scrape-jobs.yml. Private-repo Actions
+  # minutes are capped and a fast run takes 1.5-2h thanks to Ashby throttling.
+  #
+  # schedule:
+  #   - cron: "17 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -28,14 +31,23 @@ jobs:
     timeout-minutes: 50 # must stay under the 1h cron interval
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Fetch existing data from data repo
         run: |
-          git clone --depth 1 https://github.com/${{ github.repository_owner }}/job-board-data.git prev-data
+          # A missing data repo is the normal first-run state, so don't let a
+          # failed clone kill the job with exit 128. Without previous data the
+          # merge simply starts from this scrape.
           mkdir -p data/chunks
-          cp -r prev-data/data/chunks/* data/chunks/ 2>/dev/null || true
-          cp prev-data/data/metadata.json data/metadata.json 2>/dev/null || true
+          if git clone --depth 1 \
+               "https://github.com/${{ github.repository_owner }}/job-board-data.git" prev-data 2>/dev/null; then
+            cp -r prev-data/data/chunks/* data/chunks/ 2>/dev/null || true
+            cp prev-data/data/metadata.json data/metadata.json 2>/dev/null || true
+            echo "Loaded previous dataset from the data repo."
+          else
+            echo "::warning::No job-board-data repo found for ${{ github.repository_owner }}."
+            echo "Starting from an empty dataset; nothing accumulated will be lost yet."
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -73,7 +85,7 @@ jobs:
           echo "### Fresh scrape: $NEW new jobs (dataset now $TOTAL)" >> $GITHUB_STEP_SUMMARY
 
       - name: Push regenerated data to data repo
-        if: steps.shortlist.outputs.found == 'true'
+        if: steps.shortlist.outputs.found == 'true' && env.DATA_REPO_TOKEN != ''
         run: |
           git clone https://x-access-token:${DATA_REPO_TOKEN}@github.com/${{ github.repository_owner }}/job-board-data.git data-repo
           cd data-repo
