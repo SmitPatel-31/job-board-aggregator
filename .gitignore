@@ -91,3 +91,6 @@ data/*.py
 /city_aggregator/cities500.txt
 # Local virtualenv
 .venv/
+
+# Pages build output
+_site/

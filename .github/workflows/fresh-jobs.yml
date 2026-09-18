@@ -1,26 +1,26 @@
 name: Fresh Jobs (fast tier)
 
-# Hourly top-up scrape of ONLY the companies that recently posted roles matching
-# data/role_filter.json. The shortlist is a few thousand companies instead of
-# ~60k, so a run takes minutes -- which is what makes "new within the hour"
-# possible without re-scraping everything.
+# Top-up scrape of only the companies that recently posted roles matching
+# data/role_filter.json, then publish the site + data to GitHub Pages.
 #
-# merge_data.py overlays results onto existing data and never prunes anything the
-# scrape didn't cover, so a partial scrape is safe to merge.
+# The shortlist is a few thousand companies instead of ~60k. Runner IPs also
+# rotate across a large shared pool, so Ashby's rate limiting costs far less
+# here than it does from a single fixed address.
+#
+# merge_data.py overlays results onto existing data and never prunes anything
+# the scrape didn't cover, so a partial scrape is safe to merge.
 
 on:
-  # Cron disabled -- see the note in scrape-jobs.yml. Private-repo Actions
-  # minutes are capped and a fast run takes 1.5-2h thanks to Ashby throttling.
-  #
-  # schedule:
-  #   - cron: "17 * * * *"
+  schedule:
+    - cron: "17 */6 * * *" # every 6h at :17, offset off the hour
   workflow_dispatch:
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
 
-# Shared with the daily full scrape so the two never force-push the data repo
-# at the same time. The daily run is the more important one, so it wins.
+# Shared with the daily full scrape so the two never publish at once.
 concurrency:
   group: job-data-pipeline
   cancel-in-progress: false
@@ -28,38 +28,33 @@ concurrency:
 jobs:
   fresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 50 # must stay under the 1h cron interval
+    timeout-minutes: 120
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Fetch existing data from data repo
+      # The previous dataset lives in the last Pages deployment, so pull the
+      # chunks straight off the live site. No second repo, no token.
+      - name: Fetch existing data from the live site
+        env:
+          SITE: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
         run: |
-          # A missing data repo is the normal first-run state, so don't let a
-          # failed clone kill the job with exit 128. Without previous data the
-          # merge simply starts from this scrape.
-          #
-          # GIT_TERMINAL_PROMPT=0 matters: for a repo that is absent *or*
-          # private, git answers the 404 by asking for a username. With no tty
-          # that surfaces as "could not read Username ... No such device or
-          # address", and on some runners it blocks instead of failing. This
-          # makes git give up immediately so the branch below is reached.
-          export GIT_TERMINAL_PROMPT=0
           mkdir -p data/chunks
-          if git clone --depth 1 \
-               "https://github.com/${{ github.repository_owner }}/job-board-data.git" prev-data 2>/dev/null; then
-            cp -r prev-data/data/chunks/* data/chunks/ 2>/dev/null || true
-            cp prev-data/data/metadata.json data/metadata.json 2>/dev/null || true
-            echo "Loaded previous dataset from the data repo."
+          if curl -fsS "$SITE/data/chunks/jobs_manifest.json" -o data/chunks/jobs_manifest.json; then
+            jq -r '.chunks[]' data/chunks/jobs_manifest.json | while read -r c; do
+              curl -fsS "$SITE/data/chunks/$c" -o "data/chunks/$c"
+            done
+            curl -fsS "$SITE/data/metadata.json" -o data/metadata.json || true
+            echo "Restored $(jq -r '.totalJobs' data/chunks/jobs_manifest.json) jobs from the live site."
           else
-            echo "::warning::No job-board-data repo found for ${{ github.repository_owner }}."
-            echo "Starting from an empty dataset; nothing accumulated will be lost yet."
+            echo "::warning::No dataset published yet; starting from this scrape alone."
+            rm -f data/chunks/jobs_manifest.json
           fi
 
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.12.10"
+          python-version: "3.12"
 
       - name: Install dependencies
         run: pip install -r requirements.txt
@@ -71,7 +66,7 @@ jobs:
             echo "found=true" >> $GITHUB_OUTPUT
           else
             echo "found=false" >> $GITHUB_OUTPUT
-            echo "No data/role_shortlist.json yet - run the daily scrape once to generate it."
+            echo "::warning::No data/role_shortlist.json. Run the full scrape once to generate it."
           fi
 
       - name: Scrape shortlist companies
@@ -91,24 +86,26 @@ jobs:
           TOTAL=$(jq -r '.total_jobs' data/metadata.json)
           echo "### Fresh scrape: $NEW new jobs (dataset now $TOTAL)" >> $GITHUB_STEP_SUMMARY
 
-      - name: Push regenerated data to data repo
-        if: steps.shortlist.outputs.found == 'true' && env.DATA_REPO_TOKEN != ''
-        run: |
-          git clone https://x-access-token:${DATA_REPO_TOKEN}@github.com/${{ github.repository_owner }}/job-board-data.git data-repo
-          cd data-repo
-          git checkout --orphan fresh
-          git rm -rf . > /dev/null 2>&1 || true
-          mkdir -p data/chunks .github
-          cp -r ../.github/data-repo-workflows .github/workflows
-          cp -r ../data/chunks/* data/chunks/
-          cp ../data/metadata.json data/metadata.json
-          cp ../data/README.md README.md
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git config user.name "github-actions[bot]"
-          git add -A
-          git commit -m "Fresh snapshot $(date +'%Y-%m-%d %H:%M UTC')"
-          git branch -D main 2>/dev/null || true
-          git branch -m main
-          git push -f origin main
-        env:
-          DATA_REPO_TOKEN: ${{ secrets.DATA_REPO_TOKEN }}
+      - name: Assemble the Pages bundle
+        if: steps.shortlist.outputs.found == 'true'
+        run: bash .github/scripts/build-site.sh
+
+      - name: Upload Pages artifact
+        if: steps.shortlist.outputs.found == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: fresh
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
