@@ -38,6 +38,13 @@ jobs:
           # A missing data repo is the normal first-run state, so don't let a
           # failed clone kill the job with exit 128. Without previous data the
           # merge simply starts from this scrape.
+          #
+          # GIT_TERMINAL_PROMPT=0 matters: for a repo that is absent *or*
+          # private, git answers the 404 by asking for a username. With no tty
+          # that surfaces as "could not read Username ... No such device or
+          # address", and on some runners it blocks instead of failing. This
+          # makes git give up immediately so the branch below is reached.
+          export GIT_TERMINAL_PROMPT=0
           mkdir -p data/chunks
           if git clone --depth 1 \
                "https://github.com/${{ github.repository_owner }}/job-board-data.git" prev-data 2>/dev/null; then
